@@ -11,12 +11,12 @@ from elevator import ElevatorController
 ## Simple
 controller = ElevatorController(learning_rate=0.3, num_elevators=1, num_floors=3, max_capacity=2, epochs=10_000)
 
-# controller.train()
-# controller.save("gigantic_elevator.pkl")
+controller.train()
+controller.save("simple_model.pkl")
 
 # controller.load("gigantic_elevator.pkl")
 # controller.load("models/complex_elevator.pkl")
-controller.load("models/simple_elevator.pkl")
+# controller.load("models/simple_elevator.pkl")
 
 # Parameters
 num_circles_per_row = 2  # Increased number of circles per row
