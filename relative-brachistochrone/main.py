@@ -13,10 +13,12 @@ class EarthFrame:
 	
 	def update(self, rapidity_old, rapidity_new, proper_acceleration_g, delta_tau):
 		proper_acceleration = proper_acceleration_g * G  # convert g to m/s²
-		if proper_acceleration == 0:
+		if np.isclose(proper_acceleration, 0):
 			# Coasting phase, constant velocity
 			velocity = C * np.tanh(rapidity_new)  # constant coordinate velocity
 			gamma = 1 / np.sqrt(1 - (velocity**2) / (C**2))
+
+			assert abs(velocity) <= C, "Velocity exceeded speed of light!"
 			
 			delta_t = gamma * delta_tau
 			delta_x = velocity * delta_t
@@ -144,13 +146,13 @@ if __name__ == "__main__":
 	]
 
 	# Coasting Trajectory to Alpha Centuri
-	graph_prefix = "Alpha_Centauri_Coasting"
-	target_distance = 4.37 * LY
-	maneuver_sequence = [
-		(5.0, MONTH*6),
-		(0.0, MONTH*6+WEEK*2+HOUR*9),
-		(-5.0, MONTH*6),
-	]
+	# graph_prefix = "Alpha_Centauri_Coasting"
+	# target_distance = 4.37 * LY
+	# maneuver_sequence = [
+	# 	(5.0, MONTH*6),
+	# 	(0.0, MONTH*6+WEEK*2+HOUR*9),
+	# 	(-5.0, MONTH*6),
+	# ]
 
 	# Burst and Coast
 	# graph_prefix = "Burst_and_Coast"
@@ -166,7 +168,16 @@ if __name__ == "__main__":
 	# maneuver_sequence = [
 	# 	(1.0, YEAR*3),
 	# ]
-	
+
+	# Trip by ISV in Avatar
+	# graph_prefix = "Avatar"
+	# target_distance = 4.37 * LY
+	# maneuver_sequence = [
+	# 	(1.5, MONTH*6.7208), # .7 c
+	# 	(0, YEAR*3.93085), # .7 c
+	# 	(-1.5, MONTH*6.7208), # .7 c
+	# ]
+
 	proper_times = []
 	coordinate_times = []
 	proper_distances = []
@@ -201,7 +212,7 @@ if __name__ == "__main__":
 
 	sim.status()
 	plot_apparent_vs_actual_remaining_distance(graph_prefix, proper_times, actual_remaining_ds, apparent_remaining_ds)
-	plot_apparent_vs_actual_target_velocity(graph_prefix, coordinate_times, actual_remaining_ds, proper_times, apparent_remaining_ds, show_dialouge=True)
+	plot_apparent_vs_actual_target_velocity(graph_prefix, coordinate_times, actual_remaining_ds, proper_times, apparent_remaining_ds, show_dialouge=False)
 	plot_ship_vs_earth_time(graph_prefix, proper_times, coordinate_times)
 	plot_velocity_vs_time(graph_prefix, coordinate_times, coordinate_velocities, proper_times, proper_velocities)
 	plot_acceleration_vs_time(graph_prefix, input_accels, coordinate_times, coordinate_velocities, proper_times, proper_velocities)

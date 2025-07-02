@@ -94,7 +94,7 @@ def setup_ship_frame_plot(prefix):
 
 	title_text = ax.text(0, 0.8, '', transform=ax.transAxes, fontsize=12, fontweight='bold')
 	title_text.set_text(prefix.replace("_", " "))
-	distance_text = ax.text(0.4, 0.2, '', transform=ax.transAxes, fontsize=12, fontweight='bold')
+	distance_text = ax.text(0.4, 0.2, '', transform=ax.transAxes, fontsize=8, fontweight='bold')
 
 	return {
 		'fig': fig,
@@ -168,7 +168,7 @@ def animate_spaceship_flight(
 	- anim_ship, anim_earth: FuncAnimation objects
 	"""	
 	interval = int(1000 / fps)  # interval in ms between frames'
-	ship_indices = time_based_indices(proper_times, step // 5) # Run ship animation slower
+	ship_indices = time_based_indices(proper_times, step)
 	earth_indices = time_based_indices(coordinate_times, step)
 
 	# Freeze start and end of animation
@@ -237,7 +237,11 @@ def animate_spaceship_flight(
 
 		ax_ship.set_xlim(-0.5, target_distance_ly + 0.5)
 
-		dist_text_ship.set_text(f"Distance Remaining (ship frame): {toReadableDistance(apparent_remaining_ds[i])}\nShip Speed (ship frame): {toReadableVelocity(proper_velocities[i])}")
+		# Total time elapsed in frame
+		current_coordinate_time = coordinate_times[ship_indices[frame_idx]]
+		current_proper_time = proper_times[ship_indices[frame_idx]]
+
+		dist_text_ship.set_text(f"Time Elapsed (ship frame): {toReadableTime(current_proper_time)}\nDistance Remaining (ship frame): {toReadableDistance(apparent_remaining_ds[i])}\nShip Speed (ship frame): {toReadableVelocity(proper_velocities[i])}")
 
 		accel = input_accels[i]
 		if frame_idx <= freeze_start_frames or frame_idx >= len(ship_indices) - freeze_end_frames:
@@ -252,10 +256,6 @@ def animate_spaceship_flight(
 		else:
 			left_flame.set_visible(False)
 			right_flame.set_visible(False)
-
-		# Total time elapsed in frame
-		current_coordinate_time = coordinate_times[ship_indices[frame_idx]]
-		current_proper_time = proper_times[ship_indices[frame_idx]]
 
 		# One full rotation every 12 proper time units (e.g., 12 years)
 		angle_static = (current_coordinate_time % (12 * step)) / (12 * step) * 2 * np.pi
@@ -312,7 +312,7 @@ def animate_spaceship_flight(
 
 		title_text = ax.text(0, 0.8, '', transform=ax.transAxes, fontsize=12, fontweight='bold')
 		title_text.set_text(prefix.replace("_", " "))
-		distance_text = ax.text(0.5, 0.2, '', transform=ax.transAxes, fontsize=12)
+		distance_text = ax.text(0.5, 0.2, '', transform=ax.transAxes, fontsize=8)
 
 		clock_perspective_earth_hand, clock_perspective_earth_circle, clock_perspective_earth_x, clock_perspective_earth_y, clock_perspective_earth_r = create_clock(ax, 0, -0.2, color="blue")
 		clock_perspective_target_hand, clock_perspective_target_circle, clock_perspective_target_x, clock_perspective_target_y, clock_perspective_target_r = create_clock(ax, 0, -0.2, color="blue")
@@ -391,7 +391,10 @@ def animate_spaceship_flight(
 		translated_coords = scaled_coords + np.array([ship_pos, 0])
 		ship_patch_earth.set_xy(translated_coords)
 
-		dist_text_earth.set_text(f"Distance (earth frame): {toReadableDistance(actual_remaining_ds[i])}\nShip Speed (earth frame): {toReadableVelocity(coordinate_velocities[i])}")
+		current_coordinate_time = coordinate_times[earth_indices[frame_idx]]
+		current_proper_time = proper_times[earth_indices[frame_idx]]
+
+		dist_text_earth.set_text(f"Time Elapsed (earth frame): {toReadableTime(current_coordinate_time)}\nDistance (earth frame): {toReadableDistance(actual_remaining_ds[i])}\nShip Speed (earth frame): {toReadableVelocity(coordinate_velocities[i])}")
 
 		accel = input_accels[i]
 
@@ -412,9 +415,6 @@ def animate_spaceship_flight(
 		else:
 			left_flame_earth.set_visible(False)
 			right_flame_earth.set_visible(False)
-
-		current_coordinate_time = coordinate_times[earth_indices[frame_idx]]
-		current_proper_time = proper_times[earth_indices[frame_idx]]
 
 		# One full rotation every 12 coordinate time units
 		angle_static = (current_coordinate_time % (12 * step)) / (12 * step) * 2 * np.pi

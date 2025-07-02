@@ -108,7 +108,7 @@ def plot_acceleration_vs_time(prefix, input_accels, earth_times, earth_Vs, ship_
 	plt.suptitle(prefix.replace("_", " "), fontsize=14, y=1.0)  # super title above the regular title
 	plt.subplot(1, 2, 1)
 	plt.plot(earth_times/YEAR, earth_accel, '-', color='blue', label='Earth Frame Acceleration')
-	input_line1, = plt.plot(earth_times/YEAR, input_accels/G, 'b--', label='Acceleration felt on Ship')
+	input_line1, = plt.plot(earth_times/YEAR, input_accels/G, 'g--', label='Acceleration felt on Ship')
 	input_line1.set_dashes([2, 5])  # 10 points on, 10 points off
 	plt.xlabel('Earth Time (years)')
 	plt.ylabel('Acceleration (g)')
@@ -118,7 +118,7 @@ def plot_acceleration_vs_time(prefix, input_accels, earth_times, earth_Vs, ship_
 
 	plt.subplot(1, 2, 2)
 	plt.plot(ship_times/YEAR, ship_accel, 'r-', label='Ship Frame Acceleration')
-	input_line2, = plt.plot(ship_times/YEAR, input_accels/G, 'b--', label='Acceleration felt on Ship')
+	input_line2, = plt.plot(ship_times/YEAR, input_accels/G, 'g--', label='Acceleration felt on Ship')
 	input_line2.set_dashes([2, 5])  # 10 points on, 10 points off
 	plt.xlabel('Ship Time (years)')
 	plt.ylabel('Acceleration (g)')
