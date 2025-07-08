@@ -16,6 +16,51 @@ base_ship_coords = np.array([
 	[0.05, -0.07]
 ])
 
+# Polygon path: front (flat) to rear (engines)
+base_isv_coords = np.array([
+	[0.075,   0.],
+	[0.075,   0.0125],
+	[0.15,    0.0125],
+	[0.15,    0.0375],
+	[0.075,   0.05],
+	[0.075,   0.0375],
+	[0.025,   0.0375],
+	[0.025,   0.025],
+	[0.05,    0.0125],
+	[0.,      0.],
+	[-0.1,     0.],
+	[-0.1,     0.025],
+	[-0.15,    0.025],
+	[-0.15,    0.],
+	[-0.175,   0.],
+	[-0.175,   0.05],
+	[-0.1775,  0.05],
+	[-0.1775, -0.05],
+	[-0.175,  -0.05],
+	[-0.175,   0.],
+	[-0.15,    0.],
+	[-0.15,   -0.025],
+	[-0.1,    -0.025],
+	[-0.1,     0.],
+	[0.,      0.],
+	[0.05,   -0.0125],
+	[0.025,  -0.025],
+	[0.025,  -0.0375],
+	[0.075,  -0.0375],
+	[0.075,  -0.05],
+	[0.15,   -0.0375],
+	[0.15,   -0.0125],
+	[0.075,  -0.0125],
+	[0.075,   0.],
+])
+
+# Large triangular solar sail (simplified)
+base_sail_coords = np.array([
+	[0.25, 0],
+	[0.75, -0.1],
+	[0.75, 0.1]
+])
+
 # Flames normalized coords (unit size)
 base_left_flame_coords = np.array([
 	[-0.15 - 0.1, 0],
@@ -31,8 +76,7 @@ base_right_flame_coords = np.array([
 
 threshold = 0.01 * G  # threshold for showing flames
 
-base_marker_size = 0.2
-
+base_marker_size = 0.4
 
 def time_based_indices(times, step_seconds):
 	indices = [0]
@@ -64,10 +108,7 @@ def setup_ship_frame_plot(prefix):
 	ax.set_ylim(-1, 1)
 	ax.axis('off')
 
-	# Football shape for ship (ellipse-like polygon)
-	ship_coords = base_ship_coords
-
-	ship_patch = patches.Polygon(ship_coords, closed=True, color='red', zorder=5)
+	ship_patch = patches.Polygon([[0,0]], closed=True, color='red', zorder=5)
 	ax.add_patch(ship_patch)
 
 	# Flames: triangles on left and right, initially invisible
@@ -96,6 +137,11 @@ def setup_ship_frame_plot(prefix):
 	title_text.set_text(prefix.replace("_", " "))
 	distance_text = ax.text(0.4, 0.2, '', transform=ax.transAxes, fontsize=8, fontweight='bold')
 
+	sail_patch = patches.Polygon([[0, 0]], closed=True, fc='none', lw=1, color='grey', alpha=0.9, visible=False, zorder=2)
+	ax.add_patch(sail_patch)
+
+	laser_beam, = ax.plot([], [], color='red', lw=10, alpha=0.5, zorder=1)
+
 	return {
 		'fig': fig,
 		'ax': ax,
@@ -121,6 +167,8 @@ def setup_ship_frame_plot(prefix):
 		'clock_perspective_ship_x': clock_ship_x,
 		'clock_perspective_ship_y': clock_ship_y,
 		'clock_perspective_ship_r': clock_ship_r,
+		'sail_patch': sail_patch,
+		'laser_beam': laser_beam,
 	}
 
 def animate_spaceship_flight(
@@ -141,6 +189,8 @@ def animate_spaceship_flight(
 	step=WEEK,
 	freeze_start_frames=20,
 	freeze_end_frames=20,
+	use_sail=False,
+	ship_model='basic',
 ):
 	"""
 	Generate two animations of a spaceship flying between Earth and a target:
@@ -163,6 +213,8 @@ def animate_spaceship_flight(
 	- save_earth_path: str or None, if given save earth frame animation to this path (e.g. 'earth_anim.mp4')
 	- fps: frames per second (controls animation speed)
 	- step: how many simulation data points to skip per frame (e.g. step=MONTH means each frame is one Month after the previous)
+	- ship_model: which model to use for the ship animation
+	- use_sail: use sail in animation
 
 	Returns:
 	- anim_ship, anim_earth: FuncAnimation objects
@@ -198,6 +250,8 @@ def animate_spaceship_flight(
 	clock_perspective_ship_circle = ship_plot['clock_perspective_ship_circle']
 	clock_ship_perspective_x = ship_plot['clock_perspective_ship_x']
 	clock_ship_perspective_y = ship_plot['clock_perspective_ship_y']
+	sail_patch_ship = ship_plot['sail_patch']
+	laser_beam_ship = ship_plot['laser_beam']
 
 	def init_ship():
 		earth_marker_ship.center = (0, 0)
@@ -213,12 +267,12 @@ def animate_spaceship_flight(
 	def animate_ship(frame_idx):
 		i = ship_indices[frame_idx]
 
-		apparent_distance = apparent_remaining_ds[i] / LY
-		apparent_dist_to_earth = apparent_to_earth_ds[i] / LY
+		apparent_distance = 4 * apparent_remaining_ds[i] / LY
+		apparent_dist_to_earth = 4 * apparent_to_earth_ds[i] / LY
 
 		total_apparent_distance = apparent_distance + apparent_dist_to_earth
 		if total_apparent_distance > 0:
-			scale = total_apparent_distance / target_distance_ly
+			scale = total_apparent_distance / (4* target_distance_ly)
 		else:
 			scale = 1.0
 
@@ -241,21 +295,44 @@ def animate_spaceship_flight(
 		current_coordinate_time = coordinate_times[ship_indices[frame_idx]]
 		current_proper_time = proper_times[ship_indices[frame_idx]]
 
+		accel = input_accels[i]
+
+		if ship_model == "isv":
+			ship_coords = base_isv_coords
+		else:
+			ship_coords = base_ship_coords
+		ship_patch.set_xy(ship_coords * (-1 if np.isclose(accel, 0) else 1))
+
+
 		dist_text_ship.set_text(f"Time Elapsed (ship frame): {toReadableTime(current_proper_time)}\nDistance Remaining (ship frame): {toReadableDistance(apparent_remaining_ds[i])}\nShip Speed (ship frame): {toReadableVelocity(proper_velocities[i])}")
 
-		accel = input_accels[i]
 		if frame_idx <= freeze_start_frames or frame_idx >= len(ship_indices) - freeze_end_frames:
 			left_flame.set_visible(False)
 			right_flame.set_visible(False)
+			sail_patch_ship.set_visible(False)
+			laser_beam_ship.set_data([], [])
+			laser_beam_ship.set_alpha(0.0)
 		elif accel > threshold:
-			left_flame.set_visible(True)
 			right_flame.set_visible(False)
+			if use_sail:
+				sail_coords = base_sail_coords
+				sail_patch_ship.set_xy(sail_coords)
+				sail_patch_ship.set_visible(True)
+
+				# Laser from Earth to ship
+				laser_beam_ship.set_data([earth_pos_scaled, 0.70], [0, 0])
+				laser_beam_ship.set_alpha(0.5)
+			else:
+				left_flame.set_visible(True)
 		elif accel < -threshold:
 			left_flame.set_visible(False)
 			right_flame.set_visible(True)
 		else:
 			left_flame.set_visible(False)
 			right_flame.set_visible(False)
+
+			sail_patch_ship.set_visible(False)
+			laser_beam_ship.set_visible(False)
 
 		# One full rotation every 12 proper time units (e.g., 12 years)
 		angle_static = (current_coordinate_time % (12 * step)) / (12 * step) * 2 * np.pi
@@ -264,25 +341,25 @@ def animate_spaceship_flight(
 		# Clock below Earth
 		clock_earth_hand.set_data(
 			[earth_pos_scaled, earth_pos_scaled + 0.05 * np.cos(angle_static)],
-			[-0.2, -0.2 + 0.05 * np.sin(angle_static)]
+			[0.4, 0.4 + 0.05 * np.sin(angle_static)]
 		)
-		clock_earth_circle.center = (earth_pos_scaled, -0.2)
+		clock_earth_circle.center = (earth_pos_scaled, 0.4)
 
 		# Clock below Target
 		clock_target_hand.set_data(
 			[target_pos_scaled, target_pos_scaled + 0.05 * np.cos(angle_static)],
-			[-0.2, -0.2 + 0.05 * np.sin(angle_static)]
+			[0.4, 0.4 + 0.05 * np.sin(angle_static)]
 		)
-		clock_target_circle.center = (target_pos_scaled, -0.2)
+		clock_target_circle.center = (target_pos_scaled, 0.4)
 
 		# Clock Above
 		clock_perspective_ship_hand.set_data(
-		    [0, 0 + 0.05 * np.cos(angle_ship)],
-		    [0.2 + 0, 0.2 + 0.05 * np.sin(angle_ship)]
+			[0, 0 + 0.05 * np.cos(angle_ship)],
+			[0.2 + 0, 0.2 + 0.05 * np.sin(angle_ship)]
 		)
 		clock_perspective_ship_circle.center = (0, 0.2)
 
-		return (ship_patch, left_flame, right_flame, earth_marker_ship, target_marker_ship, dist_text_ship, 
+		return (ship_patch, left_flame, right_flame, earth_marker_ship, target_marker_ship, dist_text_ship, sail_patch_ship, laser_beam_ship,
 				clock_earth_hand, clock_target_hand, clock_earth_circle, clock_target_circle, clock_perspective_ship_hand, clock_perspective_ship_circle)
 
 
@@ -318,6 +395,11 @@ def animate_spaceship_flight(
 		clock_perspective_target_hand, clock_perspective_target_circle, clock_perspective_target_x, clock_perspective_target_y, clock_perspective_target_r = create_clock(ax, 0, -0.2, color="blue")
 		clock_ship_hand, clock_ship_circle, clock_ship_x, clock_ship_y, clock_ship_r = create_clock(ax, 0, 0.2, color="red")
 
+		sail_patch = patches.Polygon([[0, 0]], closed=True, fc='none', lw=1, color='grey', alpha=0.9, visible=False, zorder=2)
+		ax.add_patch(sail_patch)
+
+		laser_beam, = ax.plot([], [], color='red', lw=10, alpha=0.5, zorder=1)
+
 		return {
 			'fig': fig,
 			'ax': ax,
@@ -343,6 +425,8 @@ def animate_spaceship_flight(
 			'clock_perspective_target_x': clock_perspective_target_x,
 			'clock_perspective_target_y': clock_perspective_target_y,
 			'clock_perspective_target_r': clock_perspective_target_r,
+			'sail_patch': sail_patch,
+			'laser_beam': laser_beam,
 		}
 
 	earth_plot = setup_earth_frame_plot(target_distance_ly)
@@ -367,6 +451,8 @@ def animate_spaceship_flight(
 	clock_perspective_target_circle = earth_plot['clock_perspective_target_circle']
 	clock_perspective_target_x = earth_plot['clock_perspective_target_x']
 	clock_perspective_target_y = earth_plot['clock_perspective_target_y']
+	sail_patch_earth = earth_plot['sail_patch']
+	laser_beam_earth = earth_plot['laser_beam']
 
 	def init_earth():
 		dist_text_earth.set_text('')
@@ -386,8 +472,14 @@ def animate_spaceship_flight(
 		# Scale ship size relative to total distance
 		ship_scale = .5
 
+		accel = input_accels[i]
+
 		# Scale and translate ship polygon
-		scaled_coords = base_ship_coords * ship_scale
+		if ship_model == "isv":
+			ship_coords = base_isv_coords
+		else:
+			ship_coords = base_ship_coords
+		scaled_coords = ship_coords * ship_scale * (-1 if np.isclose(accel, 0) else 1)
 		translated_coords = scaled_coords + np.array([ship_pos, 0])
 		ship_patch_earth.set_xy(translated_coords)
 
@@ -396,17 +488,27 @@ def animate_spaceship_flight(
 
 		dist_text_earth.set_text(f"Time Elapsed (earth frame): {toReadableTime(current_coordinate_time)}\nDistance (earth frame): {toReadableDistance(actual_remaining_ds[i])}\nShip Speed (earth frame): {toReadableVelocity(coordinate_velocities[i])}")
 
-		accel = input_accels[i]
-
 		# Don't show frames at beggining or end of animation
 		if frame_idx <= freeze_start_frames or frame_idx >= len(earth_indices) - freeze_end_frames:
 			left_flame_earth.set_visible(False)
 			right_flame_earth.set_visible(False)
+			sail_patch_earth.set_visible(False)
+			laser_beam_earth.set_data([], [])
+			laser_beam_earth.set_alpha(0.0)
 		elif accel > threshold:
-			left_flame_earth.set_visible(True)
 			right_flame_earth.set_visible(False)
-			left_flame_coords = base_left_flame_coords * ship_scale + np.array([ship_pos, 0])
-			left_flame_earth.set_xy(left_flame_coords)
+			if use_sail:
+				sail_coords = base_sail_coords * ship_scale + np.array([ship_pos, 0])
+				sail_patch_earth.set_xy(sail_coords)
+				sail_patch_earth.set_visible(True)
+
+				# Laser from Earth to ship
+				laser_beam_earth.set_data([0, ship_pos + .67*ship_scale], [0, 0])
+				laser_beam_earth.set_alpha(0.5)
+			else:
+				left_flame_earth.set_visible(True)
+				left_flame_coords = base_left_flame_coords * ship_scale + np.array([ship_pos, 0])
+				left_flame_earth.set_xy(left_flame_coords)
 		elif accel < -threshold:
 			left_flame_earth.set_visible(False)
 			right_flame_earth.set_visible(True)
@@ -415,6 +517,9 @@ def animate_spaceship_flight(
 		else:
 			left_flame_earth.set_visible(False)
 			right_flame_earth.set_visible(False)
+			sail_patch_earth.set_visible(False)
+			laser_beam_earth.set_data([], [])
+			laser_beam_earth.set_alpha(0.0)
 
 		# One full rotation every 12 coordinate time units
 		angle_static = (current_coordinate_time % (12 * step)) / (12 * step) * 2 * np.pi
@@ -438,7 +543,7 @@ def animate_spaceship_flight(
 		)
 		clock_ship_circle.center = (ship_pos, clock_ship_y)
 
-		return ship_patch_earth, left_flame_earth, right_flame_earth, dist_text_earth, clock_ship_circle, clock_ship_hand, clock_ship_circle, clock_perspective_earth_hand, clock_perspective_target_circle, clock_perspective_target_hand
+		return ship_patch_earth, left_flame_earth, right_flame_earth, dist_text_earth, clock_ship_circle, clock_ship_hand, clock_ship_circle, clock_perspective_earth_hand, clock_perspective_target_circle, clock_perspective_target_hand, sail_patch_earth, laser_beam_earth
 
 	anim_earth = animation.FuncAnimation(
 		fig_earth, animate_earth, init_func=init_earth,
