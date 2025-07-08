@@ -1,183 +1,158 @@
 import numpy as np
+import argparse
+import csv
+import os
+import re
+import time
 
 from animation import animate_spaceship_flight
 from plotters import *
-from constants import *
-from helpers import *
+from simulation import Simulation
+from constants import * 
+from helpers import toReadableTime
 
-class EarthFrame:
-	def __init__(self):
-		self.coordinate_time = 0.0  # seconds
-		self.coordinate_distance = 0.0  # meters
-		self.coordinate_velocity = 0.0  # m/s
-	
-	def update(self, rapidity_old, rapidity_new, proper_acceleration_g, delta_tau):
-		proper_acceleration = proper_acceleration_g * G  # convert g to m/s²
-		if np.isclose(proper_acceleration, 0):
-			# Coasting phase, constant velocity
-			velocity = C * np.tanh(rapidity_new)  # constant coordinate velocity
-			gamma = 1 / np.sqrt(1 - (velocity**2) / (C**2))
+default_distance = 4.37 * LY
 
-			assert abs(velocity) <= C, "Velocity exceeded speed of light!"
-			
-			delta_t = gamma * delta_tau
-			delta_x = velocity * delta_t
-			
-			self.coordinate_distance += delta_x
-			self.coordinate_time += delta_t
-			self.coordinate_velocity = velocity
-		else:
-			delta_x = (C**2 / proper_acceleration) * (np.cosh(rapidity_new) - np.cosh(rapidity_old))
-			self.coordinate_distance += delta_x
+demos = {
+	"alpha_centauri_brachistochrone": {
+		"maneuvers": [
+			(5.0, 8*MONTH+2*DAY+9*HOUR+30*MINUTE*30+2),
+			(-5.0, 8*MONTH+2*DAY+9*HOUR+30*MINUTE*30+2),
+		],
+		"target_distance": 4.37 * LY
+	},
+	"alpha_centauri_coasting": {
+		"maneuvers": [
+			(5.0, 6*MONTH),
+			(0.0, MONTH*6+WEEK*2+HOUR*9),
+			(-5.0, 6*MONTH),
+		],
+		"target_distance": 4.37 * LY,
+	},
+	"burst_and_coast": {
+		"maneuvers": [
+			(10.0, 3*MONTH),
+			(0, 9*MONTH),
+		],
+		"target_distance": 4.37 * LY,
+	},
+	"slow_burn": {
+		"maneuvers": [
+			(1, 3*YEAR),
+		],
+		"target_distance": 4.37 * LY,
+	},
+	"avatar_isv": {
+		"maneuvers": [
+			(1.5, MONTH*6.7208), # .7 c
+			(0, YEAR*3.93085), # .7 c
+			(-1.5, MONTH*6.7208), # .7 c
+		],
+		"target_distance": 4.37 * LY,
+		"ship_model": 'isv',
+		"use_sail": True,
+	}
+}
 
-			delta_t = (C / proper_acceleration) * (np.sinh(rapidity_new) - np.sinh(rapidity_old))
-			self.coordinate_time += delta_t
+def get_demo_maneuvers(name):
+	if name not in demos:
+		raise ValueError(f"Unknown demo name: {name}")
+	return demos[name]
 
-			self.coordinate_velocity = C * np.tanh(rapidity_new)
+def parse_maneuver_file(args):
+	"""
+	Parses a maneuver file with lines formatted as:
+	acceleration_g, duration
+	"""
+	maneuvers = []
+	with open(args.maneuver_file, newline='') as csvfile:
+		reader = csv.reader(csvfile)
+		for row in reader:
+			if len(row) != 2:
+				raise ValueError(f"Invalid row in maneuver file: {row}")
+			accel_g = float(row[0])
+			duration_s = parse_duration_with_units(row[1])
+			if args.verbose:
+				print(f"Planned maneuver: {accel_g} g, {toReadableTime(duration_s)}")
+			maneuvers.append((accel_g, duration_s))
+	return maneuvers
 
+def parse_distance_with_units(s):
+    """
+    Parse a string with optional units: m, km, au, ly
+    Example inputs: '5m', '10 m', '4.37 ly', '7au'
+    """
+    if s == None:
+    	return None
+    if type(s) == float or type(s) == int:
+    	return s
 
-class ShipFrame:
-	def __init__(self, target_distance=0):
-		self.proper_time = 0.0  # seconds onboard ship
-		self.rapidity = 0.0     # hyperbolic angle
-		self.proper_distance = 0.0
-		self.proper_velocity = 0.0  # w = gamma * v
+    s = s.strip().lower()
+    match = re.match(r'^([0-9.]+)\s*([a-z]*)$', s)
+    if not match:
+        raise argparse.ArgumentTypeError(f"Invalid distance format: {s}")
 
-		self.target_distance = target_distance
-	
-	def apply_maneuver(self, duration_s, accel_g):
-		accel = accel_g * G
+    value, unit = match.groups()
+    value = float(value)
 
-		if accel == 0:
-			# Coasting phase: constant velocity, linear proper distance growth
-			velocity = C * np.tanh(self.rapidity)
-			gamma = 1 / np.sqrt(1 - (velocity**2) / (C**2))
-			delta_distance = velocity * duration_s * gamma  # Δx = v * Δτ * γ
-			self.proper_distance += delta_distance
+    unit_multipliers = {
+        '': 1.0, # default is meters
+        'm': 1.0,
+        'km': 1e3,
+        'au': AU,
+        'ly': LY,
+        'pc': PC, # parsecs
+    }
 
-			# Proper velocity remains unchanged
-			self.proper_velocity = C * np.sinh(self.rapidity)
+    if unit not in unit_multipliers:
+        raise argparse.ArgumentTypeError(f"Unsupported unit '{unit}' in distance '{s}'. Supported: m, km, au, ly")
 
-			# Increment proper time
-			self.proper_time += duration_s
+    return value * unit_multipliers[unit]
 
-			# Return unchanged rapidity for consistency
-			return self.rapidity, self.rapidity
-		else:
-			# Increase rapidity by a * Δτ / c
-			delta_rapidity = accel * duration_s / C
-			rapidity_old = self.rapidity
-			self.rapidity += delta_rapidity
+def parse_duration_with_units(s):
+    """
+    Parse a string with optional time units:
+    s, min, h, d, y
+    Supports inputs like '10s', '1.5 h', '2 days', '3y'
+    """
+    s = s.strip().lower()
+    match = re.match(r'^([0-9.]+)\s*([a-z]*)$', s)
+    if not match:
+        raise argparse.ArgumentTypeError(f"Invalid duration format: '{s}'")
 
-			# Determine Distance
-			old_cosh = np.cosh(self.rapidity - delta_rapidity)
-			new_cosh = np.cosh(self.rapidity)
-			delta_distance = (C ** 2 / accel) * (new_cosh - old_cosh)
-			self.proper_distance += delta_distance
-			
-			# Proper velocity w = c * sinh(rapidity)
-			self.proper_velocity = C * np.sinh(self.rapidity)
-			
-			# Increment proper time
-			self.proper_time += duration_s
+    value_str, unit = match.groups()
+    value = float(value_str)
 
-			return rapidity_old, self.rapidity
+    unit_multipliers = {
+        '': 1, # default to seconds
+        's': 1,
+        'sec': 1,
+        'secs': 1,
+        'min': MINUTE,
+        'm': MINUTE,
+        'h': HOUR,
+        'hr': HOUR,
+        'd': DAY,
+        'day': DAY,
+        'days': DAY,
+        'mn': MONTH,
+        'month': MONTH,
+        'months': MONTH,
+        'y': YEAR,
+        'yr': YEAR,
+        'yrs': YEAR,
+        'year': YEAR,
+        'years': YEAR
+    }
 
-class Simulation:
-	def __init__(self, target_distance_m):
-		self.ship = ShipFrame(target_distance_m)
-		self.earth = EarthFrame()
-		self.target_distance = target_distance_m
-		self.remaining_earth_distance = target_distance_m
-		self.apparent_remaining_distance = target_distance_m
+    if unit not in unit_multipliers:
+        raise argparse.ArgumentTypeError(
+            f"Unsupported unit '{unit}' in duration '{s}'. Supported: s, min, h, d, y"
+        )
 
-	def run(self, maneuver_sequence, step_size=60):
-		"""
-		maneuver_sequence: list of tuples [(acceleration_g, duration_s), ...]
-		step_size: simulation time step in seconds (proper time)
-		"""
-		for accel_g, duration_s in maneuver_sequence:
-			elapsed = 0
-			while elapsed < duration_s:
-				dt = min(step_size, duration_s - elapsed)
-				
-				# Apply maneuver for dt seconds of proper time
-				rapidity_old, rapidity_new = self.ship.apply_maneuver(dt, accel_g)
-				
-				# Update Earth frame based on new rapidity
-				self.earth.update(rapidity_old, rapidity_new, accel_g, dt)
+    return value * unit_multipliers[unit]
 
-				# Calculate aparent remaining distance
-				self.remaining_earth_distance = max(0.0, self.target_distance - self.earth.coordinate_distance)
-				gamma = np.cosh(self.ship.rapidity)
-				self.apparent_remaining_distance = self.remaining_earth_distance / gamma
-				self.apparent_distance_to_earth = self.earth.coordinate_distance / gamma
-				
-				elapsed += dt
-				
-				# self.status()
-
-				yield accel_g
-
-				# Stop if target reached
-				if self.earth.coordinate_distance >= self.target_distance:
-					print("Target distance reached!")
-					return
-
-	def status(self):
-		print("-" * 60)
-		print(f"Distance Remaining (Earth frame): {toReadableDistance(self.remaining_earth_distance)}")
-		print(f"Distance Remaining (Ship frame): {toReadableDistance(self.apparent_remaining_distance)}")
-		print(f"Velocity (Earth frame): {toReadableVelocity(self.earth.coordinate_velocity)}")
-		print(f"Proper velocity (Ship frame): {toReadableVelocity(self.ship.proper_velocity)}")
-		print(f"Proper time (Ship frame): {toReadableTime(self.ship.proper_time)}")
-		print(f"Coordinate time (Earth frame): {toReadableTime(self.earth.coordinate_time)}")
-		print("-" * 60)
-
-if __name__ == "__main__":
-	# Example: travel to Alpha Centauri (~4.37 light years)
-	# Maneuver sequence: [(acceleration_g, duration_seconds), ...]
-	# Brachistochrone Trajectory to Alpha Centuri
-	graph_prefix = "Alpha_Centauri_Brachistochrone"
-	target_distance = 4.37 * LY
-	maneuver_sequence = [
-		(5.0, MONTH*8+DAY*2+HOUR*9+MINUTE*30+2),
-		(-5.0, MONTH*8+DAY*2+HOUR*9+MINUTE*30+2),
-	]
-
-	# Coasting Trajectory to Alpha Centuri
-	# graph_prefix = "Alpha_Centauri_Coasting"
-	# target_distance = 4.37 * LY
-	# maneuver_sequence = [
-	# 	(5.0, MONTH*6),
-	# 	(0.0, MONTH*6+WEEK*2+HOUR*9),
-	# 	(-5.0, MONTH*6),
-	# ]
-
-	# Burst and Coast
-	# graph_prefix = "Burst_and_Coast"
-	# target_distance = 4.37 * LY
-	# maneuver_sequence = [
-	# 	(10.0, MONTH*3),
-	# 	(0.0, MONTH*9),
-	# ]
-
-	# Burst and Coast
-	# graph_prefix = "Slow_Burn"
-	# target_distance = 4.37 * LY
-	# maneuver_sequence = [
-	# 	(1.0, YEAR*3),
-	# ]
-
-	# Trip by ISV in Avatar
-	# graph_prefix = "Avatar"
-	# target_distance = 4.37 * LY
-	# maneuver_sequence = [
-	# 	(1.5, MONTH*6.7208), # .7 c
-	# 	(0, YEAR*3.93085), # .7 c
-	# 	(-1.5, MONTH*6.7208), # .7 c
-	# ]
-
+def run_simulation(maneuvers, args):
 	proper_times = []
 	coordinate_times = []
 	proper_distances = []
@@ -187,9 +162,11 @@ if __name__ == "__main__":
 	proper_velocities = []
 	coordinate_velocities = []
 	input_accels = []
-	sim = Simulation(target_distance)
-	for accel_g in sim.run(maneuver_sequence, step_size=HOUR):
-		# sim.status()
+	sim = Simulation(args.target_distance)
+	if args.verbose:
+		print("Starting simulation")
+	start_time = time.time()
+	for accel_g in sim.run(maneuvers, step_size=HOUR):
 		proper_times.append(sim.ship.proper_time)
 		coordinate_times.append(sim.earth.coordinate_time)
 		proper_distances.append(sim.ship.proper_distance)
@@ -199,7 +176,10 @@ if __name__ == "__main__":
 		proper_velocities.append(sim.ship.proper_velocity)
 		coordinate_velocities.append(sim.earth.coordinate_velocity)
 		input_accels.append(accel_g*G)
-
+	elapsed = time.time() - start_time
+	if args.verbose:
+		print(f"Simulation completed in {elapsed:.2f} seconds.")
+	
 	proper_times = np.array(proper_times)
 	coordinate_times = np.array(coordinate_times)
 	proper_distances = np.array(proper_distances)
@@ -210,36 +190,131 @@ if __name__ == "__main__":
 	coordinate_velocities = np.array(coordinate_velocities)
 	input_accels = np.array(input_accels)
 
-	sim.status()
-	plot_apparent_vs_actual_remaining_distance(graph_prefix, proper_times, actual_remaining_ds, apparent_remaining_ds)
-	plot_apparent_vs_actual_target_velocity(graph_prefix, coordinate_times, actual_remaining_ds, proper_times, apparent_remaining_ds, show_dialouge=False)
-	plot_ship_vs_earth_time(graph_prefix, proper_times, coordinate_times)
-	plot_velocity_vs_time(graph_prefix, coordinate_times, coordinate_velocities, proper_times, proper_velocities)
-	plot_acceleration_vs_time(graph_prefix, input_accels, coordinate_times, coordinate_velocities, proper_times, proper_velocities)
-	animate_spaceship_flight(
-		prefix=graph_prefix,
-		target_distance_ly=target_distance/LY,
-		input_accels=input_accels,
-		proper_times=proper_times,
-		coordinate_times=coordinate_times,
-		proper_distances=proper_distances,
-		coordinate_velocities=coordinate_velocities,
-		proper_velocities=proper_velocities,
-		actual_remaining_ds=actual_remaining_ds,
-		apparent_remaining_ds=apparent_remaining_ds,
-		apparent_to_earth_ds=apparent_to_earth_ds,
-		save_ship_path="ship_frame_animation.mp4",
-		save_earth_path="earth_frame_animation.mp4",
-		fps=10,
-		step=WEEK
-	)
+	if not args.hide_status:
+		sim.status()
 
-# ------------------------------------------------------------
-# Distance (Earth frame): 4.3700 ly / 4.3700 ly
-# Velocity (Earth frame): -0.00 m/s
-# Proper velocity (Ship frame): -0.00 m/s
-# Proper time (Ship frame): 1.24 yr(s)
-# Coordinate time (Earth frame): 4.74 yr(s)
-# ------------------------------------------------------------
+	if args.log:
+		import csv
+		import os
 
-# (4.60253727/2) Years to reach 27900 Lightyears at 5 G
+		output_path = f"./output/{args.name}/data.csv"
+		if args.verbose:
+			print(f"Saving logs to {output_path}")
+		os.makedirs(os.path.dirname(output_path), exist_ok=True)
+		with open(output_path, 'w', newline='') as f:
+			writer = csv.writer(f)
+			# Header
+			writer.writerow([
+				"proper_time_s",
+				"coordinate_time_s",
+				"proper_distance_m",
+				"remaining_earth_distance_m",
+				"apparent_remaining_distance_m",
+				"apparent_distance_to_earth_m",
+				"proper_velocity_mps",
+				"coordinate_velocity_mps",
+				"acceleration_mps2"
+			])
+			# Data rows
+			for row in zip(
+				proper_times,
+				coordinate_times,
+				proper_distances,
+				actual_remaining_ds,
+				apparent_remaining_ds,
+				apparent_to_earth_ds,
+				proper_velocities,
+				coordinate_velocities,
+				input_accels
+			):
+				writer.writerow(row)
+		
+		if args.verbose:
+			print(f"Simulation results saved to: {output_path}")
+
+	if args.graph:
+		import os
+
+		if args.verbose:
+			print(f"Saving graphs to ./output/{args.name}/")
+		os.makedirs(os.path.dirname(f"./output/{args.name}/"), exist_ok=True)
+		plot_apparent_vs_actual_remaining_distance(args.name, proper_times, actual_remaining_ds, apparent_remaining_ds)
+		plot_apparent_vs_actual_target_velocity(args.name, coordinate_times, actual_remaining_ds, proper_times, apparent_remaining_ds, show_dialouge=False)
+		plot_ship_vs_earth_time(args.name, proper_times, coordinate_times)
+		plot_velocity_vs_time(args.name, coordinate_times, coordinate_velocities, proper_times, proper_velocities)
+		plot_acceleration_vs_time(args.name, input_accels, coordinate_times, coordinate_velocities, proper_times, proper_velocities)
+
+	if args.animate:
+		animate_spaceship_flight(
+			prefix=args.name,
+			target_distance_ly=args.target_distance/LY,
+			input_accels=input_accels,
+			proper_times=proper_times,
+			coordinate_times=coordinate_times,
+			proper_distances=proper_distances,
+			coordinate_velocities=coordinate_velocities,
+			proper_velocities=proper_velocities,
+			actual_remaining_ds=actual_remaining_ds,
+			apparent_remaining_ds=apparent_remaining_ds,
+			apparent_to_earth_ds=apparent_to_earth_ds,
+			save_ship_path="ship_frame_animation.mp4",
+			save_earth_path="earth_frame_animation.mp4",
+			use_sail=args.use_sail or False,
+			ship_model=args.ship_model or 'base',
+			fps=10,
+			step=MONTH,
+		)
+
+
+def main():
+	parser = argparse.ArgumentParser(description="Run relativistic spaceship simulations.")
+
+	group = parser.add_mutually_exclusive_group(required=True)
+	group.add_argument("--maneuver-file", "--file", "-m", type=str, help="Path to CSV maneuver file with (accel_g, duration_s) rows.")
+	group.add_argument("--demo", choices=demos.keys(), help="Run a built-in maneuver demo (e.g., slow_burn, burst_and_coast).")
+
+	parser.add_argument("-n", "--name", type=str, default="test",
+						help="Name of maneuver (default: test)")
+	parser.add_argument("-d", "--target-distance", type=parse_distance_with_units, default=None,
+						help="Target distance with unit (e.g.: 3.0 au, default without unit meters, default: 4.37 light years).")
+	parser.add_argument("-s", "--step", type=float, default=60.0,
+						help="Step size in seconds of proper time (default: 60).")
+	parser.add_argument("--ship-model", type=str, default='base',
+						help="Ship model to use for animation (default: base)")
+	parser.add_argument("--use-sail", action='store_true',
+						help="Use sail in animation (default: false)")
+	parser.add_argument("--hide-status", action="store_true",
+						help="Print status at end of simulation.")
+	parser.add_argument("--verbose", "-v", action="store_true",
+						help="Print status at end of simulation.")
+	parser.add_argument("--graph", "-g", action="store_true",
+						help="Generate graphs into output path.\nSaved to file in ./output/{{name}}")
+	parser.add_argument("--log", "-l", action="store_true",
+						help="Log raw data to csvfile\nSaved to file ./output/data.csv")
+	parser.add_argument("--animate", "-a", action="store_true",
+						help="Generate animations\nSaved to file ./output/{}.mp4")
+
+	args = parser.parse_args()
+
+	try:
+		if args.demo:
+			config = get_demo_maneuvers(args.demo)
+			maneuvers = config["maneuvers"]
+			args.name = args.demo
+			args.target_distance = config["target_distance"]
+			args.ship_model = config.get("ship_model", 'base')
+			args.use_sail = config.get("use_sail", False)
+		else:
+			maneuvers = parse_maneuver_file(args)
+			args.target_distance = parse_distance_with_units(args.target_distance)
+			if not args.target_distance:
+				args.target_distance = default_distance
+
+		run_simulation(maneuvers, args)
+
+	except Exception as e:
+		print(f"Error: {e}")
+
+
+if __name__ == "__main__":
+	main()

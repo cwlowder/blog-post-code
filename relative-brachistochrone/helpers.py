@@ -21,9 +21,9 @@ def toReadableTime(seconds):
 		return f"{seconds / CENTURY:.4f} century(s)"
 
 def toReadableDistance(distance):
-	if distance < AU/5:
+	if abs(distance) < AU/5:
 		return f"{distance:.4f}m"
-	elif distance < LY/100:
+	elif abs(distance) < LY/100:
 		distance = distance / AU
 		return f"{distance:.4f} au"
 	else:
@@ -31,9 +31,9 @@ def toReadableDistance(distance):
 		return f"{distance:.4f} ly"
 
 def toReadableVelocity(velocity):
-	if velocity < 100:
+	if abs(velocity) < 100:
 		return f"{velocity:.4f} m/s"
-	elif velocity < C/100:
+	elif abs(velocity) < C/100:
 		velocity /= 1000
 		return f"{velocity:.4f} km/s"
 	else:
