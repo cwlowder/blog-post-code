@@ -13,10 +13,8 @@ def toReadableTime(seconds):
 		return f"{seconds / WEEK:.4f} week(s)"
 	elif seconds < YEAR:
 		return f"{seconds / MONTH:.4f} month(s)"
-	elif seconds < DECADE:
+	elif seconds < 100*DECADE:
 		return f"{seconds / YEAR:.4f} yr(s)"
-	elif seconds < CENTURY:
-		return f"{seconds / DECADE:.4f} decade(s)"
 	else:
 		return f"{seconds / CENTURY:.4f} century(s)"
 
