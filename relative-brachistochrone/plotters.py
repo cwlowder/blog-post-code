@@ -4,6 +4,14 @@ import numpy as np
 from constants import *
 
 def plot_apparent_vs_actual_remaining_distance(prefix, ship_times, actual_distances, apparent_distances):
+	# halfway = 2*len(ship_times) // 9
+	# second =  len(ship_times) // 2
+
+	# # Slice the second half of each array
+	# ship_times = ship_times[halfway:second]
+	# actual_distances = actual_distances[halfway:second]
+	# apparent_distances = apparent_distances[halfway:second]
+
 	plt.figure(figsize=(10, 6))
 	plt.suptitle(prefix.replace("_", " "), fontsize=14, y=1.0)  # super title above the regular title
 	# plt.plot([d/LY for d in actual_distances], [d/LY for d in apparent_distances], color='purple')
@@ -22,8 +30,8 @@ def plot_apparent_vs_actual_target_velocity(prefix, earth_times, actual_distance
 	plt.figure(figsize=(12, 5))
 	plt.suptitle(prefix.replace("_", " "), fontsize=14, y=1.0)  # super title above the regular title
 	# plt.plot([d/LY for d in actual_distances], [d/LY for d in apparent_distances], color='purple')
-	target_vel_earth = np.gradient(actual_distances, earth_times) / C # Earth frame acceleration
-	target_vel_ship = np.gradient(apparent_distances, ship_times) / C # Ship frame acceleration
+	target_vel_earth = np.gradient(actual_distances, earth_times) / C # Earth frame
+	target_vel_ship = np.gradient(apparent_distances, ship_times) / C # Ship frame
 
 	plt.subplot(1, 2, 1)
 	plt.plot(earth_times/YEAR, target_vel_earth, color='blue')
@@ -52,6 +60,40 @@ def plot_apparent_vs_actual_target_velocity(prefix, earth_times, actual_distance
 
 	plt.tight_layout()
 	plt.savefig(f"output/{prefix}/{prefix}_remaining_apparent_vs_target_velocity.png", transparent=True)
+
+
+def plot_apparent_vs_actual_target_acceleration(prefix, earth_times, actual_distances, ship_times, apparent_distances):
+	plt.figure(figsize=(12, 5))
+	plt.suptitle(prefix.replace("_", " "), fontsize=14, y=1.0)  # super title above the regular title
+	target_vel_earth = np.gradient(actual_distances, earth_times) / C # Earth frame
+	target_vel_ship = np.gradient(apparent_distances, ship_times) / C # Ship frame
+
+	target_accel_earth = np.gradient(target_vel_earth, earth_times) / G # Earth frame
+	target_accel_ship = np.gradient(target_vel_ship, ship_times) / G # Ship frame
+
+	# target_accel_earth = target_accel_earth[2:]
+	# target_accel_ship = target_accel_ship[2:]
+
+	# earth_times = earth_times[2:]
+	# ship_times = ship_times[2:]
+
+	plt.subplot(1, 2, 1)
+	plt.plot(earth_times/YEAR, target_accel_earth, color='blue')
+	plt.xlabel("Earth Time (years)")
+	plt.ylabel("Relative Accel (fraction of g)")
+	plt.title("Relative Accel of Target to Ship (Earth Frame)")
+	plt.grid(True)
+
+	plt.subplot(1, 2, 2)
+	plt.plot(ship_times/YEAR, target_accel_ship, color='red')
+	plt.xlabel("Ship Time (years)")
+	plt.ylabel("Relative Accel (fraction of g)")
+	plt.title("Relative Accel of Target to Ship (Ship Frame)")
+	plt.grid(True)
+
+	plt.tight_layout()
+	plt.savefig(f"output/{prefix}/{prefix}_remaining_apparent_vs_target_accel.png", transparent=True)
+
 
 
 def plot_ship_vs_earth_time(prefix, ship_times, earth_times):

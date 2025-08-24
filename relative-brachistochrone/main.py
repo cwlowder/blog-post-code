@@ -167,7 +167,7 @@ def run_simulation(maneuvers, args):
 	if args.verbose:
 		print("Starting simulation")
 	start_time = time.time()
-	for accel_g in sim.run(maneuvers, step_size=HOUR):
+	for accel_g in sim.run(maneuvers, step_size=args.step):
 		proper_times.append(sim.ship.proper_time)
 		coordinate_times.append(sim.earth.coordinate_time)
 		proper_distances.append(sim.ship.proper_distance)
@@ -217,6 +217,7 @@ def run_simulation(maneuvers, args):
 				"acceleration_mps2"
 			])
 			# Data rows
+			i = 0
 			for row in zip(
 				proper_times,
 				coordinate_times,
@@ -228,8 +229,10 @@ def run_simulation(maneuvers, args):
 				coordinate_velocities,
 				input_accels
 			):
-				writer.writerow(row)
-		
+				if i % (args.log_sample) == 0:
+					writer.writerow(row)
+				i += 1
+
 		if args.verbose:
 			print(f"Simulation results saved to: {output_path}")
 
@@ -241,6 +244,7 @@ def run_simulation(maneuvers, args):
 		os.makedirs(os.path.dirname(f"./output/{args.name}/"), exist_ok=True)
 		plot_apparent_vs_actual_remaining_distance(args.name, proper_times, actual_remaining_ds, apparent_remaining_ds)
 		plot_apparent_vs_actual_target_velocity(args.name, coordinate_times, actual_remaining_ds, proper_times, apparent_remaining_ds, show_dialouge=False)
+		plot_apparent_vs_actual_target_acceleration(args.name, coordinate_times, actual_remaining_ds, proper_times, apparent_remaining_ds)
 		plot_ship_vs_earth_time(args.name, proper_times, coordinate_times)
 		plot_velocity_vs_time(args.name, coordinate_times, coordinate_velocities, proper_times, proper_velocities)
 		plot_acceleration_vs_time(args.name, input_accels, coordinate_times, coordinate_velocities, proper_times, proper_velocities)
@@ -278,8 +282,8 @@ def main():
 						help="Name of maneuver (default: test)")
 	parser.add_argument("-d", "--target-distance", type=parse_distance_with_units, default=None,
 						help="Target distance with unit (e.g.: 3.0 au, default without unit meters, default: 4.37 light years).")
-	parser.add_argument("-s", "--step", type=float, default=60.0,
-						help="Step size in seconds of proper time (default: 60).")
+	parser.add_argument("-s", "--step", type=float, default=HOUR,
+						help="Step size in seconds of proper time (default: 1 Hour).")
 	parser.add_argument("--ship-model", type=str, default='base',
 						help="Ship model to use for animation (default: base)")
 	parser.add_argument("--use-sail", action='store_true',
@@ -292,6 +296,8 @@ def main():
 						help="Generate graphs into output path.\nSaved to file in ./output/{{name}}")
 	parser.add_argument("--log", "-l", action="store_true",
 						help="Log raw data to csvfile\nSaved to file ./output/data.csv")
+	parser.add_argument("--log-sample", type=int, default=1,
+						help="Log Xth entry to file (e.g. 100 means log every 100th epoch)")
 	parser.add_argument("--animate", "-a", action="store_true",
 						help="Generate animations\nSaved to file ./output/{}.mp4")
 
